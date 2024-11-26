@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     description TEXT,
     time_limit INT,
     employer_id INT,
+    start_time DATETIME DEFAULT NULL,
     unique_key VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (employer_id) REFERENCES employers(id)
@@ -153,6 +154,7 @@ CREATE TABLE IF NOT EXISTS questions (
     quiz_id INT,
     question_text TEXT,
     question_type VARCHAR(50),
+    correct_answer JSON,
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id)
 );
 """
@@ -210,9 +212,22 @@ CREATE TABLE quiz_responses (
     quiz_id INT NOT NULL,
     candidate_id INT NOT NULL,
     answers JSON NOT NULL,
+    score INT,
+    time_taken INT,
     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (candidate_id) REFERENCES candidates(id)
+);
+"""
+
+create_quiz_invites_table = """
+CREATE TABLE quiz_invites (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    quiz_id INT NOT NULL,
+    candidate_email VARCHAR(255) NOT NULL,
+    unique_key VARCHAR(255) NOT NULL UNIQUE,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (quiz_id) REFERENCES quizzes(id)
 );
 """
 
@@ -236,3 +251,4 @@ execute_query(connection, create_answer_options_table)
 execute_query(connection, create_quiz_link_table)
 execute_query(connection, create_quiz_responses_table)
 execute_query(connection, create_quiz_result_table)
+execute_query(connection, create_quiz_invites_table)
