@@ -176,38 +176,116 @@ app.delete('/quiz/:id', (req, res) => {
     const quizId = req.params.id;
     const userId = req.session.userId;
 
-    // Step 1: Delete from answer_options
-    db.query("DELETE answer_options FROM answer_options INNER JOIN questions ON answer_options.question_id = questions.id WHERE questions.quiz_id = ?", [quizId], (err, result) => {
+    console.log(`Deleting quiz with ID: ${quizId} for employer ID: ${userId}`);
+
+    // Step 1: Delete responses from quiz_responses
+    db.query("DELETE FROM quiz_responses WHERE quiz_id = ?", [quizId], (err) => {
         if (err) {
-            console.error("Failed to delete answer options:", err);
+            console.error("Failed to delete quiz responses:", err);
             return res.status(500).json({ error: 'Failed to delete quiz' });
         }
-        console.log(`Deleted answer options associated with quiz ID: ${quizId}`);
+        console.log(`Deleted quiz responses for quiz ID: ${quizId}`);
 
-        // Step 2: Delete from questions
-        db.query("DELETE FROM questions WHERE quiz_id = ?", [quizId], (err, result) => {
-            if (err) {
-                console.error("Failed to delete questions:", err);
-                return res.status(500).json({ error: 'Failed to delete quiz' });
-            }
-            console.log(`Deleted questions associated with quiz ID: ${quizId}`);
-
-            // Step 3: Delete from quizzes
-            db.query("DELETE FROM quizzes WHERE id = ? AND employer_id = ?", [quizId, userId], (err, result) => {
+        // Step 2: Delete questions and associated answer options
+        db.query(
+            "DELETE answer_options FROM answer_options INNER JOIN questions ON answer_options.question_id = questions.id WHERE questions.quiz_id = ?",
+            [quizId],
+            (err) => {
                 if (err) {
-                    console.error("Failed to delete quiz:", err);
+                    console.error("Failed to delete answer options:", err);
                     return res.status(500).json({ error: 'Failed to delete quiz' });
                 }
-                if (result.affectedRows === 0) {
-                    console.log("No quiz found with that ID for the current user.");
-                    return res.status(404).json({ error: 'Quiz not found' });
-                }
-                console.log(`Quiz with ID ${quizId} deleted successfully.`);
-                res.json({ message: 'Quiz deleted successfully' });
-            });
-        });
+
+                db.query("DELETE FROM questions WHERE quiz_id = ?", [quizId], (err) => {
+                    if (err) {
+                        console.error("Failed to delete questions:", err);
+                        return res.status(500).json({ error: 'Failed to delete quiz' });
+                    }
+
+                    // Step 3: Finally, delete the quiz itself
+                    db.query(
+                        "DELETE FROM quizzes WHERE id = ? AND employer_id = ?",
+                        [quizId, userId],
+                        (err, result) => {
+                            if (err) {
+                                console.error("Failed to delete quiz:", err);
+                                return res.status(500).json({ error: 'Failed to delete quiz' });
+                            }
+                            if (result.affectedRows === 0) {
+                                return res.status(404).json({ error: 'Quiz not found' });
+                            }
+                            console.log(`Quiz with ID ${quizId} deleted successfully`);
+                            res.json({ message: 'Quiz deleted successfully' });
+                        }
+                    );
+                });
+            }
+        );
     });
 });
+
+
+app.get('/quiz-results/:email', isEmployerAuthenticated, (req, res) => {
+    const employerId = req.session.userId;
+    const candidateEmail = req.params.email;
+
+    const query = `
+        SELECT 
+            q.title AS quiz_title,
+            qs.id AS question_id,
+            qs.question_text,
+            qr.answers AS candidate_answers,
+            ao.option_text AS correct_answer,
+            ao.is_correct,
+            ROW_NUMBER() OVER (PARTITION BY qs.quiz_id ORDER BY qs.id) - 1 AS question_index
+        FROM quiz_responses qr
+        JOIN quizzes q ON qr.quiz_id = q.id
+        JOIN questions qs ON qs.quiz_id = q.id
+        JOIN answer_options ao ON ao.question_id = qs.id
+        JOIN candidates c ON qr.candidate_id = c.id
+        WHERE q.employer_id = ? AND c.email = ? AND ao.is_correct = 1
+        ORDER BY q.title, qs.id;
+    `;
+
+    db.query(query, [employerId, candidateEmail], (err, results) => {
+        if (err) {
+            console.error("Failed to fetch quiz results:", err);
+            return res.status(500).json({ error: 'Failed to fetch quiz results' });
+        }
+
+        const evaluatedResults = results.map(result => {
+            let candidateAnswers;
+            try {
+                // Parse the answers JSON
+                candidateAnswers = typeof result.candidate_answers === 'string'
+                    ? JSON.parse(result.candidate_answers || '[]')
+                    : result.candidate_answers || [];
+            } catch (error) {
+                console.error("Failed to parse candidate answers:", error);
+                candidateAnswers = [];
+            }
+
+            // Match the question using question_index
+            const selectedOption = candidateAnswers.find(
+                ans => ans.questionIndex === result.question_index
+            )?.selectedOptions[0]; // Extract the selected option
+
+            return {
+                quiz_title: result.quiz_title,
+                question_id: result.question_id,
+                question_text: result.question_text,
+                candidate_answer: selectedOption || 'No Answer',
+                correct_answer: result.correct_answer,
+                is_correct: selectedOption === result.correct_answer,
+            };
+        });
+
+        res.json(evaluatedResults);
+    });
+});
+
+
+
 
 
 // Fetch details of a specific quiz for editing
@@ -881,6 +959,27 @@ app.get('/quiz-responses/:quizId', isEmployerAuthenticated, (req, res) => {
     });
 });
 
+app.get('/quiz-results/:email', isEmployerAuthenticated, (req, res) => {
+    const employerId = req.session.userId;
+    const candidateEmail = req.params.email;
+
+    const query = `
+        SELECT q.title AS quiz_title, c.name AS candidate_name, qr.answers, qr.completed_at
+        FROM quiz_responses qr
+        JOIN quizzes q ON qr.quiz_id = q.id
+        JOIN candidates c ON qr.candidate_id = c.id
+        WHERE q.employer_id = ? AND c.email = ?
+        ORDER BY q.title, qr.completed_at
+    `;
+
+    db.query(query, [employerId, candidateEmail], (err, results) => {
+        if (err) {
+            console.error("Failed to fetch quiz results:", err);
+            return res.status(500).json({ error: 'Failed to fetch quiz results' });
+        }
+        res.json(results);
+    });
+});
 
 // Start the server
 app.listen(PORT, () => {

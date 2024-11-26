@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Results</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">AI Coder</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="index.html">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="create_quiz_page.html">Create Quiz</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="manage_quizzes_page.html">Manage Quizzes</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="quiz_results_page.html">Quiz Results</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <h2>Quiz Results</h2>
+    
+        <!-- Input for Candidate Email -->
+        <div class="mb-4">
+            <label for="candidateEmail" class="form-label">Enter Candidate Email:</label>
+            <input type="email" id="candidateEmail" class="form-control" placeholder="Enter candidate's email">
+            <button id="fetchResults" class="btn btn-primary mt-3">Fetch Results</button>
+        </div>
+    
+        <!-- Results Section -->
+        <div id="quizResults"></div>
+    </div>
+
+    <script>
+        async function fetchQuizResults(email) {
+    try {
+        const response = await fetch(`http://localhost:3000/quiz-results/${encodeURIComponent(email)}`);
+        const results = await response.json();
+        const container = document.getElementById('quizResults');
+
+        container.innerHTML = ''; // Clear previous results
+
+        if (results.length === 0) {
+            container.innerHTML = `<p>No results found for email: ${email}</p>`;
+            return;
+        }
+
+        let currentQuiz = null;
+        results.forEach(result => {
+            if (currentQuiz !== result.quiz_title) {
+                if (currentQuiz !== null) {
+                    container.innerHTML += '</ul>';
+                }
+                currentQuiz = result.quiz_title;
+                container.innerHTML += `<h4>${currentQuiz}</h4><ul>`;
+            }
+
+            container.innerHTML += `
+                <li>
+                    <strong>Question:</strong> ${result.question_text || 'N/A'} <br>
+                    <strong>Candidate's Answer:</strong> ${result.candidate_answer || 'No Answer'} <br>
+                    <strong>Correct Answer:</strong> ${result.correct_answer || 'N/A'} <br>
+                    <strong>Correct?:</strong> ${result.is_correct ? 'Yes' : 'No'}
+                </li>
+            `;
+        });
+
+        if (currentQuiz !== null) {
+            container.innerHTML += '</ul>';
+        }
+    } catch (error) {
+        console.error("Error fetching quiz results:", error);
+    }
+}
+
+// Add event listener for fetching quiz results by email
+document.getElementById('fetchResults').addEventListener('click', () => {
+    const email = document.getElementById('candidateEmail').value;
+    if (!email) {
+        alert("Please enter a candidate's email.");
+        return;
+    }
+    fetchQuizResults(email);
+});
+
+    </script>
+    
+</body>
+</html>
