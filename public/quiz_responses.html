@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Coder Dashboard</title>
-    <!-- Bootstrap CSS -->
+    <title>Quiz Responses</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
@@ -42,32 +41,24 @@
             </div>
         </div>
     </nav>
-
-    <!-- Main Dashboard -->
     <div class="container mt-5">
-        <div class="row">
-            <!-- Sidebar -->
-            <div class="col-md-3">
-                <div class="list-group">
-                    <a href="index.html" class="list-group-item list-group-item-action active">Home</a>
-                    <a href="create_quiz_page.html" class="list-group-item list-group-item-action">Create Quiz</a>
-                    <a href="manage_quizzes_page.html" class="list-group-item list-group-item-action">Manage Quizzes</a>
-                    <a href="analytics_page.html" class="list-group-item list-group-item-action">Analytics</a>
-                    <a href="employer_account.html" class="list-group-item list-group-item-action">Employer Account</a>
-                </div>
-            </div>
-
-            <!-- Main Content Area -->
-            <div class="col-md-9">
-                <h2>Welcome to the AI Coder Dashboard</h2>
-                <p>Here you can manage your quizzes, check analytics, and configure settings for your coding quizzes.</p>
-                <a href="employer_account.html" class="btn btn-primary mt-3">Go to Employer Account Management</a>
-            </div>
-        </div>
+        <h1>Quiz Responses</h1>
+        <p id="quizTitle"></p>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Candidate Email</th>
+                    <th>Score</th>
+                    <th>Time Taken (min)</th>
+                    <th>Submission Time</th>
+                </tr>
+            </thead>
+            <tbody id="responsesTable">
+                <!-- Content will be dynamically added -->
+            </tbody>
+        </table>
     </div>
-
-    <!-- Bootstrap JS and jQuery -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="quiz_responses.js"></script>
 </body>
 </html>

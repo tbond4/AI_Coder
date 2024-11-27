@@ -100,8 +100,9 @@ app.post('/create-quiz', isEmployerAuthenticated, async (req, res) => {
         // Insert the questions into the database
         const questionPromises = questions.map((question, index) => {
             return new Promise((resolve, reject) => {
-                const insertQuestionQuery = `INSERT INTO questions (quiz_id, question_text, question_type) VALUES (?, ?, ?)`;
-                db.query(insertQuestionQuery, [quizId, question.text, question.type], (err, questionResult) => {
+                console.log(questions)
+                const insertQuestionQuery = `INSERT INTO questions (quiz_id, question_text, question_type, correct_answer) VALUES (?, ?, ?, ?)`;
+                db.query(insertQuestionQuery, [quizId, question.text, question.type, JSON.stringify(question.correctAnswers)], (err, questionResult) => {
                     if (err) {
                         console.error('Failed to insert question:', err);
                         return reject(err);
@@ -176,6 +177,14 @@ app.delete('/quiz/:id', (req, res) => {
     const userId = req.session.userId;
 
     console.log(`Deleting quiz with ID: ${quizId} for employer ID: ${userId}`);
+
+    db.query("DELETE FROM quiz_invites WHERE quiz_id = ?", [quizId], (err) => {
+        if (err) {
+            console.error("Failed to delete quiz responses:", err);
+            return res.status(500).json({ error: 'Failed to delete quiz' });
+        }
+        console.log(`Deleted quiz invites for quiz ID: ${quizId}`);
+    });
 
     // Step 1: Delete responses from quiz_responses
     db.query("DELETE FROM quiz_responses WHERE quiz_id = ?", [quizId], (err) => {
@@ -417,6 +426,70 @@ app.put('/quiz/:id', isEmployerAuthenticated, (req, res) => {
                     .then(() => res.json({ message: 'Quiz updated successfully' }))
                     .catch(err => res.status(500).json({ error: 'Failed to update questions/options' }));
             });
+        });
+    });
+});
+
+// Route to resend a created quiz to a new candidate
+app.post('/send-quiz', isEmployerAuthenticated, (req, res) => {
+    const { quizId, candidateEmail } = req.body;
+
+    if (!quizId || !candidateEmail) {
+        return res.status(400).json({ error: 'Quiz ID and candidate email are required.' });
+    }
+
+    // Fetch the original unique key from the quizzes table
+    const fetchKeyQuery = `SELECT unique_key FROM quizzes WHERE id = ?`;
+
+    db.query(fetchKeyQuery, [quizId], (fetchErr, fetchResults) => {
+        if (fetchErr) {
+            console.error('Error fetching unique key:', fetchErr);
+            return res.status(500).json({ error: 'Failed to fetch quiz key.' });
+        }
+
+        if (fetchResults.length === 0) {
+            return res.status(404).json({ error: 'Quiz not found.' });
+        }
+
+        const uniqueKey = fetchResults[0].unique_key;
+
+        // Insert the invite into the quiz_invites table for tracking
+        const inviteQuery = `
+            INSERT INTO quiz_invites (quiz_id, candidate_email, unique_key)
+            VALUES (?, ?, ?)`;
+
+        db.query(inviteQuery, [quizId, candidateEmail, uniqueKey], async (inviteErr) => {
+            if (inviteErr) {
+                console.error('Error saving quiz invite:', inviteErr);
+                return res.status(500).json({ error: 'Failed to send quiz invite.' });
+            }
+
+            // Send the email to the candidate
+            try {
+                const transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: {
+                        user: 'jessesoliman@gmail.com', // Replace with your email
+                        pass: 'jdmqdfnjoqmhwegu' // Replace with your app password
+                    }
+                });
+
+                const quizLink = `http://localhost:3000/unlock_quiz.html?key=${uniqueKey}`;
+                const mailOptions = {
+                    from: '"Quiz Portal" <jessesoliman@gmail.com>',
+                    to: candidateEmail,
+                    subject: 'You Have Been Invited to Take a Quiz',
+                    text: `Hello,\n\nYou have been invited to take a quiz. Please use the following link to access it:\n\n${quizLink}\n\nGood luck!\nQuiz Portal`,
+                };
+
+                await transporter.sendMail(mailOptions);
+                console.log(`Quiz invite sent to ${candidateEmail}`);
+
+                res.json({ message: 'Quiz sent successfully!' });
+            } catch (emailErr) {
+                console.error('Failed to send email:', emailErr);
+                res.status(500).json({ error: 'Quiz invite saved, but failed to send email.' });
+            }
         });
     });
 });
@@ -675,25 +748,222 @@ app.get('/take-quiz/:key', isCandidateAuthenticated, (req, res) => {
 app.post('/submit-quiz', isCandidateAuthenticated, (req, res) => {
     const { quizKey, answers } = req.body;
 
-    const quizQuery = `SELECT id FROM quizzes WHERE unique_key = ?`;
-    db.query(quizQuery, [quizKey], (quizErr, quizResults) => {
+    if (!quizKey || !answers) {
+        return res.status(400).json({ error: 'Quiz key and answers are required.' });
+    }
+
+    console.log('Quiz Key received:', quizKey);
+
+    // Fetch quiz and questions
+    const quizQuery = `
+        SELECT 
+            quizzes.id AS quiz_id, quizzes.title, quizzes.start_time, 
+            employers.email AS employer_email, employers.name AS employer_name,
+            questions.id AS question_id, questions.correct_answer
+        FROM quizzes
+        JOIN employers ON quizzes.employer_id = employers.id
+        JOIN questions ON quizzes.id = questions.quiz_id
+        WHERE quizzes.unique_key = ?`;
+
+    db.query(quizQuery, [quizKey], async (quizErr, quizResults) => {
+        if (quizErr) {
+            console.error('Database error while fetching quiz:', quizErr);
+            return res.status(500).json({ error: 'Database error while fetching quiz.' });
+        }
+
+        if (!quizResults || quizResults.length === 0) {
+            return res.status(404).json({ error: 'Quiz not found.' });
+        }
+
+        console.log('Quiz fetched successfully.');
+
+        const quizId = quizResults[0].quiz_id;
+        const candidateId = req.session.candidateId;
+        const employerEmail = quizResults[0].employer_email;
+        const employerName = quizResults[0].employer_name;
+        const quizTitle = quizResults[0].title;
+
+        // Map question IDs to correct answers
+        const correctAnswersMap = quizResults.reduce((map, question) => {
+            map[question.question_id] = (question.correct_answer || '[]');
+            return map;
+        }, {});
+
+        // Calculate score
+        let score = 0;
+        answers.forEach(({ questionIndex, selectedOptions }) => {
+            const questionId = quizResults[questionIndex]?.question_id; // Adjust index if needed
+            const correctAnswer = correctAnswersMap[questionId];
+            console.log(JSON.stringify(selectedOptions.sort()), JSON.stringify(correctAnswer.sort()))
+
+            if (
+                Array.isArray(correctAnswer) &&
+                Array.isArray(selectedOptions) &&
+                JSON.stringify(selectedOptions.sort()) === JSON.stringify(correctAnswer.sort())
+            ) {
+                score++;
+            }
+        });
+
+        console.log('Calculated score:', score);
+
+        // Calculate time taken
+        const startTime = quizResults[0].start_time;
+        const timeTaken = startTime ? Math.floor((Date.now() - new Date(startTime)) / 1000) : null;
+
+        // Insert response into database
+        const insertResponseQuery = `
+            INSERT INTO quiz_responses (quiz_id, candidate_id, answers, score, time_taken, completed_at)
+            VALUES (?, ?, ?, ?, ?, NOW())`;
+
+        db.query(insertResponseQuery, [quizId, candidateId, JSON.stringify(answers), score, timeTaken], async (responseErr) => {
+            if (responseErr) {
+                console.error('Error saving quiz response:', responseErr);
+                return res.status(500).json({ error: 'Failed to save quiz response.' });
+            }
+
+            console.log('Quiz response saved successfully.');
+
+            // Notify employer via email
+            try {
+                const transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: {
+                        user: 'jessesoliman@gmail.com', // Replace with your email
+                        pass: 'jdmqdfnjoqmhwegu' // Replace with your app password
+                    }
+                });
+
+                const mailOptions = {
+                    from: '"Quiz Portal" <your-email@example.com>',
+                    to: employerEmail,
+                    subject: `Quiz Completed: ${quizTitle}`,
+                    text: `Hello ${employerName},\n\nA candidate has completed the quiz "${quizTitle}" with a score of ${score}.\n\nThank you,\nQuiz Portal`,
+                    html: `
+                        <p>Hello ${employerName},</p>
+                        <p>A candidate has completed the quiz "<strong>${quizTitle}</strong>" with a score of <strong>${score}</strong>.</p>
+                        <p>Thank you,<br>Quiz Portal</p>
+                    `
+                };
+
+                await transporter.sendMail(mailOptions);
+                console.log(`Email sent to employer: ${employerEmail}`);
+
+                res.json({ message: 'Quiz submitted successfully!', score, timeTaken });
+            } catch (emailErr) {
+                console.error('Failed to send email:', emailErr);
+                res.status(500).json({ error: 'Quiz response saved, but failed to notify employer.' });
+            }
+        });
+    });
+});
+
+////////////////// EMPLOYER ANALYTICS ROUTES ////////////////
+
+// Fetch Quiz Results for Employers
+app.get('/quiz-results/:quizId', isEmployerAuthenticated, (req, res) => {
+    const quizId = req.params.quizId;
+
+    const quizQuery = `
+        SELECT quizzes.title, quizzes.description, employers.id AS employer_id
+        FROM quizzes
+        JOIN employers ON quizzes.employer_id = employers.id
+        WHERE quizzes.id = ?`;
+
+    const responsesQuery = `
+        SELECT qr.candidate_id, candidates.name AS candidate_name, qr.score, qr.time_taken, qr.answers, qr.completed_at
+        FROM quiz_responses qr
+        JOIN candidates ON qr.candidate_id = candidates.id
+        WHERE qr.quiz_id = ?
+        ORDER BY qr.completed_at DESC`;
+
+    db.query(quizQuery, [quizId], (quizErr, quizResults) => {
         if (quizErr || quizResults.length === 0) {
             return res.status(404).json({ error: 'Quiz not found.' });
         }
 
-        const quizId = quizResults[0].id;
-        const candidateId = req.session.candidateId;
+        const quiz = quizResults[0];
+        console.log(quiz)
 
-        // Insert quiz response into the database
-        const insertResponseQuery = `
-            INSERT INTO quiz_responses (quiz_id, candidate_id, answers, completed_at)
-            VALUES (?, ?, ?, NOW())`;
-        db.query(insertResponseQuery, [quizId, candidateId, JSON.stringify(answers)], (responseErr) => {
-            if (responseErr) {
-                return res.status(500).json({ error: 'Failed to save quiz response.' });
+        if (quiz.employer_id !== req.session.userId) {
+            return res.status(403).json({ error: 'Unauthorized access to quiz results.' });
+        }
+
+        db.query(responsesQuery, [quizId], (responsesErr, responsesResults) => {
+            if (responsesErr) {
+                return res.status(500).json({ error: 'Failed to fetch quiz responses.' });
             }
-            res.json({ message: 'Quiz submitted successfully!' });
+
+            res.json({
+                quiz: {
+                    title: quiz.title,
+                    description: quiz.description
+                },
+                responses: responsesResults
+            });
         });
+    });
+});
+
+// Fetch Analytics Data
+app.get('/quiz-analytics', isEmployerAuthenticated, (req, res) => {
+    const employerId = req.session.userId;
+
+    if (!employerId) {
+        return res.status(401).json({ error: 'Unauthorized access.' });
+    }
+
+    // Query to fetch analytics for all quizzes created by the employer
+    const analyticsQuery = `
+        SELECT 
+            quizzes.id AS quiz_id,
+            quizzes.title AS quiz_title,
+            COUNT(quiz_responses.id) AS total_responses,
+            COALESCE(AVG(quiz_responses.score), 0) AS average_score,
+            COALESCE(MAX(quiz_responses.score), 0) AS highest_score,
+            COALESCE(MIN(quiz_responses.score), 0) AS lowest_score,
+            COALESCE(AVG(quiz_responses.time_taken), 0) AS average_time
+        FROM quizzes
+        LEFT JOIN quiz_responses ON quizzes.id = quiz_responses.quiz_id
+        WHERE quizzes.employer_id = ?
+        GROUP BY quizzes.id
+        ORDER BY quizzes.title;`;
+
+    db.query(analyticsQuery, [employerId], (err, results) => {
+        if (err) {
+            console.error('Error fetching quiz analytics:', err);
+            return res.status(500).json({ error: 'Failed to fetch analytics data.' });
+        }
+        res.json(results);
+    });
+});
+
+// Fetch Quiz Responses
+app.get('/quiz-responses/:quizId', isEmployerAuthenticated, (req, res) => {
+    const { quizId } = req.params;
+
+    if (!quizId) {
+        return res.status(400).json({ error: 'Quiz ID is required.' });
+    }
+
+    const query = `
+        SELECT 
+            candidates.id AS candidate_id,
+            candidates.email AS candidate_email,
+            quiz_responses.score,
+            quiz_responses.time_taken,
+            quiz_responses.completed_at
+        FROM quiz_responses
+        JOIN candidates ON quiz_responses.candidate_id = candidates.id
+        WHERE quiz_responses.quiz_id = ?
+        ORDER BY quiz_responses.score DESC, quiz_responses.time_taken ASC`;
+
+    db.query(query, [quizId], (err, results) => {
+        if (err) {
+            console.error('Error fetching quiz responses:', err);
+            return res.status(500).json({ error: 'Failed to fetch quiz responses.' });
+        }
+        res.json(results);
     });
 });
 

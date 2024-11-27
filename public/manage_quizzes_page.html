@@ -10,21 +10,74 @@
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
             <a class="navbar-brand" href="#">AI Coder</a>
-            <div class="collapse navbar-collapse">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
-                    <li class="nav-item"><a class="nav-link" href="index.html">Dashboard</a></li>
-                    <li class="nav-item"><a class="nav-link" href="create_quiz_page.html">Create Quiz</a></li>
-                    <li class="nav-item"><a class="nav-link active" href="manage_quizzes_page.html">Manage Quizzes</a></li>
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="index.html">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="create_quiz_page.html">Create Quiz</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="manage_quizzes_page.html">Manage Quizzes</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="quiz_analytics.html">Analytics</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="quiz_results_page.html">Quiz Results</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="employer_account.html">Employer Account</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="candidate_login.html">Candidate Login</a>
+                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
     <div class="container mt-5">
-        <h2>Manage Your Quizzes</h2>
-        <div id="quizzesContainer" class="mt-4"></div>
+        <h1>Manage Quizzes</h1>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Quiz Title</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="quizTable">
+                <!-- Quizzes will be populated here -->
+            </tbody>
+        </table>
+    
+        <!-- Modal to Send Quiz -->
+        <div class="modal" id="sendQuizModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Send Quiz</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="sendQuizForm">
+                            <div class="mb-3">
+                                <label for="candidateEmail" class="form-label">Candidate Email</label>
+                                <input type="email" class="form-control" id="candidateEmail" required>
+                            </div>
+                            <input type="hidden" id="selectedQuizId">
+                            <button type="submit" class="btn btn-primary">Send Quiz</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <script src="manage_quizzes_page.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="manage_quizzes_page.js"></script>    
 </body>
 </html>
