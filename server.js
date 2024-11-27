@@ -178,6 +178,14 @@ app.delete('/quiz/:id', (req, res) => {
 
     console.log(`Deleting quiz with ID: ${quizId} for employer ID: ${userId}`);
 
+    db.query("DELETE FROM quiz_invites WHERE quiz_id = ?", [quizId], (err) => {
+        if (err) {
+            console.error("Failed to delete quiz responses:", err);
+            return res.status(500).json({ error: 'Failed to delete quiz' });
+        }
+        console.log(`Deleted quiz invites for quiz ID: ${quizId}`);
+    });
+
     // Step 1: Delete responses from quiz_responses
     db.query("DELETE FROM quiz_responses WHERE quiz_id = ?", [quizId], (err) => {
         if (err) {
